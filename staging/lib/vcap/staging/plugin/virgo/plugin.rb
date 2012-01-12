@@ -11,19 +11,46 @@ class VirgoPlugin < StagingPlugin
     Dir.chdir(destination_directory) do
       create_app_directories
       webapp_root = Virgo.prepare(destination_directory)
+      services = environment[:services] if environment
+      copy_service_drivers(webapp_root, services)
       copy_source_files(webapp_root)
+      setup_autostaging(webapp_root)
       create_startup_script
       create_stop_script
     end
   end
 
+  def setup_autostaging webapp_root
+    Virgo.prepare_stager webapp_root
+  end
+
+   def copy_service_drivers webapp_root, services
+    
+    Virgo.copy_service_drivers(services, webapp_root) if services
+  end
+  
   def copy_source_files(dest = nil)
     extension = Virgo.detect_file_extension(source_directory)
     dest ||= File.join(destination_directory, "app.#{extension}")
     if extension === "plan"
       system "cp -a #{File.join(source_directory, "*")} #{dest}"
-      system "cp -rf #{File.join(dest, Virgo.repository, "*")} #{File.join(dest, "..", Virgo.repository)}"
+      system "cp -rf #{File.join(dest, Virgo.repository, "*")} #{File.join(dest, "..", Virgo.repository,"usr")}"
+      
+      # Copy the plan file to pickup
+      plan =''
+      Dir.chdir(source_directory) do
+        plan = Dir.glob("*.plan")[0]       
+      end
+      system "cp -a #{File.join(source_directory, plan)} #{File.join(dest, "..", "pickup")}"
       system "rm -rf #{File.join(dest, Virgo.repository)}"
+    elsif extension == "parpacked"
+      # cases where par file is created;dependencies are inside par-provided folder; maven plugin
+      parfile =''
+      Dir.chdir(source_directory) do
+        parfile = Dir.glob("*.par")[0]       
+      end
+      system "cp -a #{File.join(source_directory, parfile)} #{File.join(dest, "..", "pickup")}"
+      system "cp -a #{File.join(source_directory,"par-provided", "*")} #{File.join(dest, "..", Virgo.repository,"usr")}"
     else
       output = %x[cd #{source_directory}; zip -r #{File.join(dest, File.basename(source_directory) + ".#{extension}")} *]
       raise "Could not pack Virgo application: #{output}" unless $? == 0
